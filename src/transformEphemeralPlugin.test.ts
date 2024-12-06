@@ -28,7 +28,7 @@ describe("transformEphemeralPlugin", () => {
   });
 
   describe("incorrect usage", () => {
-    test("it should error log on a non-object literal argument", async () => {
+    it("should error log on a non-object literal argument", async () => {
       const buf = await fs.readFile("src/fixtures/nonObjectLiteralArgument.js");
       const res = await transformFile(buf);
 
@@ -47,7 +47,7 @@ describe("transformEphemeralPlugin", () => {
       );
     });
 
-    test("it should error log on spread properties", async () => {
+    it("should error log on spread properties", async () => {
       const buf = await fs.readFile("src/fixtures/spreadProperties.js");
       const res = await transformFile(buf);
 
@@ -69,7 +69,7 @@ export function fn(arg) {
     // Should either report an error or clear all properties in the object when
     // using computed keys.
     // Should also make keys non-enumerable.
-    test.skip("it should error log on computed property names", async () => {
+    it.skip("should error log on computed property names", async () => {
       const buf = await fs.readFile("src/fixtures/computedPropertyNames.js");
       const res = await transformFile(buf);
 
@@ -78,7 +78,7 @@ export function fn(arg) {
     });
   });
 
-  test("direct return", async () => {
+  it("should support a direct return", async () => {
     const buf = await fs.readFile("src/fixtures/directReturn.js");
     const res = await transformFile(buf);
 
@@ -97,7 +97,7 @@ export function fn(arg) {
 `);
   });
 
-  test("variable", async () => {
+  it("should transform a use in a variable declaration", async () => {
     const buf = await fs.readFile("src/fixtures/variable.js");
     const res = await transformFile(buf);
 
@@ -115,7 +115,7 @@ export function fn(arg) {
 `);
   });
 
-  test("multiple uses", async () => {
+  it("should support multiple uses in a function", async () => {
     const buf = await fs.readFile("src/fixtures/multipleUses.js");
     const res = await transformFile(buf);
 
@@ -138,7 +138,7 @@ export function fn(arg) {
 `);
   });
 
-  test("subproperty", async () => {
+  it("should generate the variable for a subproperty", async () => {
     const buf = await fs.readFile("src/fixtures/subproperty.js");
     const res = await transformFile(buf);
 
@@ -159,6 +159,76 @@ export function fn(arg) {
     return _genEphemeralObj0;
   }
 }"
+`);
+  });
+
+  /*
+   * For things like iterators, each one should have its own variable so that
+   * multiple of them can be used without conflicting.
+   */
+  it("should generate the reused variable for a nested function", async () => {
+    const buf = await fs.readFile("src/fixtures/nestedFunction.js");
+    const res = await transformFile(buf);
+
+    expect(res?.code).toMatchInlineSnapshot(`
+"import { ephemeral } from "../ephemeral.js";
+export function fn(arg) {
+  const _genEphemeralObj0 = {
+    foo: void 0
+  };
+  return function inner(innerArg) {
+    _genEphemeralObj0.foo = innerArg
+    return _genEphemeralObj0;
+  };
+}"
+`);
+  });
+
+  it("should generate the reused variable for a generator function", async () => {
+    const buf = await fs.readFile("src/fixtures/generator.js");
+    const res = await transformFile(buf);
+
+    expect(res?.code).toMatchInlineSnapshot(`
+"import { ephemeral } from "../ephemeral.js";
+export function* fn(arg) {
+  const _genEphemeralObj0 = {
+    count: void 0
+  };
+  for (let i = 0; i < 5; i++) {
+    _genEphemeralObj0.count = i
+    yield _genEphemeralObj0;
+  }
+}"
+`);
+  });
+
+  it("should generate the reused variable for an arrow function", async () => {
+    const buf = await fs.readFile("src/fixtures/arrowFunction.js");
+    const res = await transformFile(buf);
+
+    expect(res?.code).toMatchInlineSnapshot(`
+"import { ephemeral } from "../ephemeral.js";
+const _genEphemeralObj0 = {
+  foo: void 0
+};
+export const fn = arg => {
+  _genEphemeralObj0.foo = arg
+  return _genEphemeralObj0;
+};"
+`);
+  });
+
+  it.only("should generate for code in a module body", async () => {
+    const buf = await fs.readFile("src/fixtures/moduleBody.js");
+    const res = await transformFile(buf);
+
+    expect(res?.code).toMatchInlineSnapshot(`
+"import { ephemeral } from "../ephemeral.js";
+const _genEphemeralObj0 = {
+  foo: void 0
+};
+_genEphemeralObj0.foo = 2
+export const foo = _genEphemeralObj0;"
 `);
   });
 });

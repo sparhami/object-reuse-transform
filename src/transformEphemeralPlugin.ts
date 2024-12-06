@@ -30,8 +30,15 @@ export function transformEphemeralPlugin({
     return getParentOfType(parentPath, matches);
   }
 
-  function getFunctionParent(path: NodePath<Node>) {
-    return getParentOfType(path, t.isFunctionDeclaration);
+  function getInsertScope(path: NodePath<Node>) {
+    return getParentOfType(path, (target: Node) => {
+      return (
+        t.isFunctionDeclaration(target) ||
+        t.isFunctionExpression(target) ||
+        t.isArrowFunctionExpression(target) ||
+        t.isProgram(target)
+      );
+    });
   }
 
   function getStatementParent(path: NodePath<Node>) {
@@ -85,11 +92,11 @@ export function transformEphemeralPlugin({
           return;
         }
 
-        // Get the function that is the parent of our emphemeral statement.
-        const functionParent = getFunctionParent(path);
+        // Get the scope where we should insert the ephemeral variable.
+        const insertScope = getInsertScope(path);
 
         // The name for the declaration of the ephemeral variable.
-        const declName = t.identifier(getTempVarName(functionParent));
+        const declName = t.identifier(getTempVarName(insertScope));
 
         /*
          * Create the ephemeral declaration as a const before the containing
@@ -121,8 +128,28 @@ export function transformEphemeralPlugin({
             ),
           ]);
 
-          // And insert it before the function.
-          functionParent.insertBefore(variableDeclaration);
+          const insertParent =
+            t.isStatement(insertScope as Node) ||
+            t.isProgram(insertScope as Node)
+              ? insertScope
+              : getStatementParent(insertScope);
+          const insertNode = insertParent.node;
+
+          if (t.isFunctionDeclaration(insertNode) && insertNode.generator) {
+            // For generators, we want to insert at the start of the generator
+            // function, to allow multiple iterators to have their own value.
+            insertParent
+              .get("body")
+              .unshiftContainer("body", variableDeclaration);
+          } else if (t.isProgram(insertNode)) {
+            // If we're being inserted into a program body (i.e. module scope),
+            // then inserrt it before the statement that contained the usage.
+            getStatementParent(path).insertBefore(variableDeclaration);
+          } else {
+            // For all other cases, insert it before the function that contains
+            // the usage.
+            insertParent.insertBefore(variableDeclaration);
+          }
         }
 
         // Create the code to update the ephemeral object.
